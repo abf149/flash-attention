@@ -79,7 +79,7 @@ headdim=64 # 128 # note: headdim=64, nheads=16 implies n=1024
 # seqlen = 512
 # nheads = 8
 # headdim = 128
-dropout_p = 0.0 #Requirement for triton
+dropout_p = 0.1 #0.0
 causal = True
 dtype = torch.float16 #torch.bfloat16
 device = 'cuda'

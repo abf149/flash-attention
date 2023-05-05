@@ -3,7 +3,7 @@ version: '3'
 services:
   flashattention:
     hostname: flash-attention
-    image: flash:clean
+    image: flash:latest
     volumes:
       - ./:/home/workspace
     environment:
