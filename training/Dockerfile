@@ -96,4 +96,4 @@ RUN git clone https://github.com/HazyResearch/flash-attention \
     && cd csrc/layer_norm && pip install . && cd ../../ \
     && cd csrc/fused_dense_lib && pip install . && cd ../../ \
     && cd csrc/ft_attention && pip install . && cd ../../ \
-    && cd .. && rm -rf flash-attention
+#    && cd .. && rm -rf flash-attention

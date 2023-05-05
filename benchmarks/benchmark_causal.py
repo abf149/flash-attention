@@ -67,20 +67,21 @@ def attention_megatron(qkv):
     output = torch.einsum('bhts,bshd->bthd', attention, v)
     return output.to(dtype=qkv.dtype)
 
-
+# Modification by abf149: match noncausal configuration
 torch.manual_seed(0)
 repeats = 30
-batch_size = 2
-seqlen = 4096
-nheads = 12
-headdim = 128
+batch_size = 64 #2
+seqlen = 1024 #4096
+nheads = 16 #12
+# headdim = 128 # <= original
+headdim=64 # 128 # note: headdim=64, nheads=16 implies n=1024
 # batch_size = 64
 # seqlen = 512
 # nheads = 8
 # headdim = 128
-dropout_p = 0.0
+dropout_p = 0.1 #0.0
 causal = True
-dtype = torch.bfloat16
+dtype = torch.float16 #torch.bfloat16
 device = 'cuda'
 
 qkv = torch.randn(batch_size, seqlen, 3, nheads, headdim, device=device, dtype=dtype,
@@ -93,8 +94,8 @@ benchmark_all(flash_attn_unpadded_qkvpacked_func, rearrange(qkv, 'b s ... -> (b 
 benchmark_all(attention_pytorch, qkv, dropout_p, causal=causal,
               repeats=repeats, desc='PyTorch Attention')
 
-benchmark_all(flash_attn_qkvpacked_func, qkv, None, causal, repeats=repeats, desc='FlashAttention Triton')
-pytorch_profiler(flash_attn_qkvpacked_func, qkv, None, causal, backward=True)
+#benchmark_all(flash_attn_qkvpacked_func, qkv, None, causal, repeats=repeats, desc='FlashAttention Triton')
+#pytorch_profiler(flash_attn_qkvpacked_func, qkv, None, causal, backward=True)
 
 q, k, v = [torch.randn(batch_size, nheads, seqlen, headdim, device=device, dtype=dtype,
                        requires_grad=True) for _ in range(3)]

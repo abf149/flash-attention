@@ -1,0 +1,21 @@
+version: '3'
+
+services:
+  flashattention:
+    hostname: flash-attention
+    image: flash:clean
+    volumes:
+      - ./:/home/workspace
+    environment:
+      - USER_UID=1000
+      - USER_GID=1000
+    stdin_open: true
+    tty: true
+    working_dir: /home/workspace
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
