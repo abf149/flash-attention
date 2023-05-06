@@ -868,7 +868,7 @@ class FlashAttnFunc(torch.autograd.Function):
     def forward(ctx, q, k, v, bias=None, causal=False, softmax_scale=None):
         """
             q: (batch_size, seqlen_q, nheads, headdim)
-            k, v: (batch_size, seqlen_k, nheads, headdim)
+            k, v: (batch_size, seqlen_k, headdim)
             bias: optional, shape broadcastible to (batch, nheads, seqlen_q, seqlen_k).
                 For example, ALiBi mask for causal would have shape (1, nheads, 1, seqlen_k).
                 ALiBi mask for non-causal would have shape (1, nheads, seqlen_q, seqlen_k)

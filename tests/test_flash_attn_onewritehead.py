@@ -373,8 +373,8 @@ def test_flash_attn_triton_output(seqlen_q, seqlen_k, d, causal, dtype, bias_sha
     device = 'cuda'
     # set seed
     torch.random.manual_seed(0)
-    batch_size = 1 # 32
-    nheads = 1 # 4
+    batch_size = 32 # 32
+    nheads = 2 # 4
     q = torch.randn(batch_size, seqlen_q, nheads, d, device=device, dtype=dtype)
     k, v = torch.randn(batch_size, seqlen_k, 2, d, device=device, dtype=dtype).unbind(dim=2) #torch.randn(batch_size, seqlen_k, 2, nheads, d, device=device, dtype=dtype).unbind(dim=2)
     if bias_shape == '1h1k':
