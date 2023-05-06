@@ -547,12 +547,12 @@ def _bwd_kernel(
     off_h = off_hb % nheads
     # offset pointers for batch/head
     Q += off_b * stride_qb + off_h * stride_qh
-    K += off_b * stride_kb + off_h * stride_kh
-    V += off_b * stride_vb + off_h * stride_vh
+    K += off_b * stride_kb
+    V += off_b * stride_vb
     DO += off_b * stride_dob + off_h * stride_doh
     DQ += off_b * stride_dqb + off_h * stride_dqh
-    DK += off_b * stride_dkb + off_h * stride_dkh
-    DV += off_b * stride_dvb + off_h * stride_dvh
+    DK += off_b * stride_dkb
+    DV += off_b * stride_dvb
     if BIAS_TYPE != 'none':
         Bias += off_b * stride_bb + off_h * stride_bh
     # pointer to row-wise quantities in value-like data
@@ -674,13 +674,23 @@ def _flash_attn_forward(q, k, v, bias=None, causal=False, softmax_scale=None):
     )
     return o, lse, softmax_scale  # softmax_scale could have been updated
 
+"""
+    Combined FlashAttention/One-write-head implementation (backward)
 
+    Arguments:
+        q: (batch_size, seqlen_q, nheads, head_dim)
+        k: (batch_size, seqlen_k, head_dim)
+        v: (batch_size, seqlen_k, head_dim)
+        bias: (batch_size, nheads, seqlen_q, seqlen_k)
+        causal:
+        softmax_scale
+"""
 def _flash_attn_backward(do, q, k, v, o, lse, dq, dk, dv, bias=None, causal=False, softmax_scale=None):
     # Make sure that the last dimension is contiguous
     if do.stride(-1) != 1:
         do = do.contiguous()
     batch, seqlen_q, nheads, d = q.shape
-    _, seqlen_k, _, _ = k.shape
+    _, seqlen_k, _ = k.shape
     # assert d in {16, 32, 64, 128}
     assert d <= 128
     seqlen_q_rounded = math.ceil(seqlen_q / 128) * 128
@@ -704,6 +714,7 @@ def _flash_attn_backward(do, q, k, v, o, lse, dq, dk, dv, bias=None, causal=Fals
     )
 
     has_bias = bias is not None
+    assert not has_bias
     bias_type = 'none'
     if has_bias:
         assert bias.dtype in [q.dtype, torch.float]
@@ -731,13 +742,13 @@ def _flash_attn_backward(do, q, k, v, o, lse, dq, dk, dv, bias=None, causal=Fals
         lse, delta,
         softmax_scale,
         q.stride(0), q.stride(2), q.stride(1),
-        k.stride(0), k.stride(2), k.stride(1),
-        v.stride(0), v.stride(2), v.stride(1),
+        k.stride(0), 0, k.stride(1),
+        v.stride(0), 0, v.stride(1),
         *bias_strides,
         do.stride(0), do.stride(2), do.stride(1),
         dq_accum.stride(0), dq_accum.stride(2), dq_accum.stride(1),
-        dk.stride(0), dk.stride(2), dk.stride(1),
-        dv.stride(0), dv.stride(2), dv.stride(1),
+        dk.stride(0), 0, dk.stride(1),
+        dv.stride(0), 0, dv.stride(1),
         nheads, seqlen_q, seqlen_k, seqlen_q_rounded, d,
         seqlen_q // 32,  seqlen_k // 32, # key for triton cache (limit number of compilations)
         # Can't use kwargs here because triton autotune expects key to be args, not kwargs
