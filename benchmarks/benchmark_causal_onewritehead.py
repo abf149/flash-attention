@@ -99,7 +99,7 @@ benchmark_all(flash_attn_qkvpacked_func, qkv, None, causal, repeats=repeats, des
 pytorch_profiler(flash_attn_qkvpacked_func, qkv, None, causal, backward=True)
 
 benchmark_all(flash_attn_qkvpacked_func_onewritehead, qkv, None, causal, repeats=repeats, desc='FlashAttention Triton OWH')
-pytorch_profiler(flash_attn_qkvpacked_func_onewritehead, qkv, None, causal, backward=True)
+pytorch_profiler(flash_attn_qkvpacked_func, qkv, None, causal, backward=True)
 
 q, k, v = [torch.randn(batch_size, nheads, seqlen, headdim, device=device, dtype=dtype,
                        requires_grad=True) for _ in range(3)]

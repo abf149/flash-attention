@@ -328,16 +328,22 @@ def _bwd_kernel_one_col_block(
         b_ptrs = Bias + offs_n
     elif BIAS_TYPE == 'matrix':
         b_ptrs = Bias + (offs_qm[:, None] * stride_bm + offs_n[None, :])
+    # Load dv, dk to be updated
+    dv_ptrs = DV + (offs_n[:, None] * stride_dvn + offs_d[None, :])
+    dk_ptrs = DK + (offs_n[:, None] * stride_dkn + offs_d[None, :])  
     # initialize dv and dk
-    dv = tl.zeros([BLOCK_N, BLOCK_HEADDIM], dtype=tl.float32)
-    dk = tl.zeros([BLOCK_N, BLOCK_HEADDIM], dtype=tl.float32)
+    dk = tl.load(dk_ptrs, eviction_policy="evict_last")
+    dv = tl.load(dv_ptrs, eviction_policy="evict_last")
+    #dv = tl.zeros([BLOCK_N, BLOCK_HEADDIM], dtype=tl.float32)
+    #dk = tl.zeros([BLOCK_N, BLOCK_HEADDIM], dtype=tl.float32)
+    
     # There seems to be some problem with Triton pipelining that makes results wrong for
     # headdim=64, seqlen=(113, 255), bias_type='matrix'. In this case the for loop
     # may have zero step, and pipelining with the bias matrix could screw it up.
     # So we just exit early.
     if begin_m >= seqlen_q:
-        dv_ptrs = DV + (offs_n[:, None] * stride_dvn + offs_d[None, :])
-        dk_ptrs = DK + (offs_n[:, None] * stride_dkn + offs_d[None, :])
+        #dv_ptrs = DV + (offs_n[:, None] * stride_dvn + offs_d[None, :])
+        #dk_ptrs = DK + (offs_n[:, None] * stride_dkn + offs_d[None, :])
         _bwd_store_dk_dv(dk_ptrs, dv_ptrs, dk, dv, offs_n, offs_d, seqlen_k, headdim,
                          EVEN_M=EVEN_M, EVEN_N=EVEN_N, EVEN_HEADDIM=EVEN_HEADDIM)
         return
@@ -489,8 +495,8 @@ def _bwd_kernel_one_col_block(
         if BIAS_TYPE == 'matrix':
             b_ptrs += BLOCK_M * stride_bm
     # write-back
-    dv_ptrs = DV + (offs_n[:, None] * stride_dvn + offs_d[None, :])
-    dk_ptrs = DK + (offs_n[:, None] * stride_dkn + offs_d[None, :])
+    #dv_ptrs = DV + (offs_n[:, None] * stride_dvn + offs_d[None, :])
+    #dk_ptrs = DK + (offs_n[:, None] * stride_dkn + offs_d[None, :])
     _bwd_store_dk_dv(dk_ptrs, dv_ptrs, dk, dv, offs_n, offs_d, seqlen_k, headdim,
                      EVEN_M=EVEN_M, EVEN_N=EVEN_N, EVEN_HEADDIM=EVEN_HEADDIM)
 
@@ -499,10 +505,13 @@ def init_to_zero(name):
     return lambda nargs: nargs[name].zero_()
 
 
+def init_specific_to_zero():
+    return lambda nargs: (nargs['DQ'].zero_(),nargs['DK'].zero_(),nargs['DV'].zero_())
+
 @triton.autotune(
     configs=[
-        triton.Config({"BLOCK_M": 128, "BLOCK_N": 128, "SEQUENCE_PARALLEL": False}, num_warps=8, num_stages=1, pre_hook=init_to_zero('DQ')),
-        triton.Config({"BLOCK_M": 128, "BLOCK_N": 128, "SEQUENCE_PARALLEL": True}, num_warps=8, num_stages=1, pre_hook=init_to_zero('DQ')),
+        triton.Config({"BLOCK_M": 128, "BLOCK_N": 128, "SEQUENCE_PARALLEL": False}, num_warps=8, num_stages=1, pre_hook=init_specific_to_zero()),
+        triton.Config({"BLOCK_M": 128, "BLOCK_N": 128, "SEQUENCE_PARALLEL": True}, num_warps=8, num_stages=1, pre_hook=init_specific_to_zero()),
         # Other configs seem to give wrong results when seqlen_q % 128 != 0, disabling them for now
         # # Kernel is buggy (give wrong result) if we set BLOCK_m=128, BLOCK_n=64, num_warps=*4*
         # triton.Config({"BLOCK_M": 128, "BLOCK_N": 64, "SEQUENCE_PARALLEL": False}, num_warps=8, num_stages=1, pre_hook=init_to_zero('DQ')),
@@ -700,6 +709,9 @@ def _flash_attn_backward(do, q, k, v, o, lse, dq, dk, dv, bias=None, causal=Fals
     softmax_scale = softmax_scale or 1.0 / math.sqrt(d)
     # dq_accum = torch.zeros_like(q, dtype=torch.float32)
     dq_accum = torch.empty_like(q, dtype=torch.float32)
+    # K, V accumulation are required for one-write-head
+    dk_accum = torch.empty_like(k, dtype=torch.float32)
+    dv_accum = torch.empty_like(v, dtype=torch.float32)
     delta = torch.empty_like(lse)
     # delta = torch.zeros_like(lse)
 
@@ -738,7 +750,7 @@ def _flash_attn_backward(do, q, k, v, o, lse, dq, dk, dv, bias=None, causal=Fals
                     batch * nheads)
     _bwd_kernel[grid](
         q, k, v, bias,
-        do, dq_accum, dk, dv,
+        do, dq_accum, dk_accum, dv_accum,
         lse, delta,
         softmax_scale,
         q.stride(0), q.stride(2), q.stride(1),
@@ -747,8 +759,8 @@ def _flash_attn_backward(do, q, k, v, o, lse, dq, dk, dv, bias=None, causal=Fals
         *bias_strides,
         do.stride(0), do.stride(2), do.stride(1),
         dq_accum.stride(0), dq_accum.stride(2), dq_accum.stride(1),
-        dk.stride(0), 0, dk.stride(1),
-        dv.stride(0), 0, dv.stride(1),
+        dk_accum.stride(0), 0, dk_accum.stride(1),
+        dv_accum.stride(0), 0, dv_accum.stride(1),
         nheads, seqlen_q, seqlen_k, seqlen_q_rounded, d,
         seqlen_q // 32,  seqlen_k // 32, # key for triton cache (limit number of compilations)
         # Can't use kwargs here because triton autotune expects key to be args, not kwargs
@@ -760,6 +772,8 @@ def _flash_attn_backward(do, q, k, v, o, lse, dq, dk, dv, bias=None, causal=Fals
         # num_stages=1,
     )
     dq.copy_(dq_accum)
+    dk.copy_(dk_accum)
+    dv.copy_(dv_accum)
 
 
 class FlashAttnQKVPackedFunc(torch.autograd.Function):
@@ -775,8 +789,11 @@ class FlashAttnQKVPackedFunc(torch.autograd.Function):
         # Make sure that the last dimension is contiguous
         if qkv.stride(-1) != 1:
             qkv = qkv.contiguous()
+        q = qkv[:, :, 0]
+        k = qkv[:, :, 1, 0, :]
+        v = qkv[:, :, 2, 0, :]
         o, lse, ctx.softmax_scale = _flash_attn_forward(
-            qkv[:, :, 0], qkv[:, :, 1], qkv[:, :, 2], bias=bias, causal=causal,
+            q, k, v, bias=bias, causal=causal,
             softmax_scale=softmax_scale
         )
         ctx.save_for_backward(qkv, o, lse, bias)
@@ -791,13 +808,19 @@ class FlashAttnQKVPackedFunc(torch.autograd.Function):
         # does a memcpy. To avoid this we run in inference_mode, which doesn't track the version.
         with torch.inference_mode():
             dqkv = torch.empty_like(qkv)
-            _flash_attn_backward(do, qkv[:, :, 0], qkv[:, :, 1], qkv[:, :, 2], o, lse,
-                                 dqkv[:, :, 0], dqkv[:, :, 1], dqkv[:, :, 2],
+            q = qkv[:, :, 0]
+            k = qkv[:, :, 1, 0, :]
+            v = qkv[:, :, 2, 0, :]
+            dq = dqkv[:, :, 0]
+            dk = dqkv[:, :, 1, 0, :]
+            dv = dqkv[:, :, 2, 0, :]
+            _flash_attn_backward(do, q, k, v, o, lse,
+                                 dq, dk, dv,
                                  bias=bias, causal=ctx.causal, softmax_scale=ctx.softmax_scale)
         return dqkv, None, None, None
 
 
-flash_attn_qkvpacked_func = FlashAttnQKVPackedFunc.apply
+flash_attn_qkvpacked_func_onewritehead = FlashAttnQKVPackedFunc.apply
 
 
 class FlashAttnKVPackedFunc(torch.autograd.Function):

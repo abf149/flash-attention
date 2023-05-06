@@ -359,7 +359,7 @@ def get_dropout_fraction(dropout_mask, query_padding_mask=None, key_padding_mask
 # @pytest.mark.parametrize('dtype', [torch.bfloat16])
 @pytest.mark.parametrize('causal', [True])
 # @pytest.mark.parametrize('causal', [True])
-@pytest.mark.parametrize('d', [64])
+@pytest.mark.parametrize('d', [16]) #64
 # @pytest.mark.parametrize('d', [48])
 @pytest.mark.parametrize('seqlen_q,seqlen_k', [(1024, 1024)]) # (1024, 1024), (1023, 1024), (1024, 1023)
 # @pytest.mark.parametrize('seqlen_q,seqlen_k', [(1024, 1023)])
@@ -373,8 +373,8 @@ def test_flash_attn_triton_output(seqlen_q, seqlen_k, d, causal, dtype, bias_sha
     device = 'cuda'
     # set seed
     torch.random.manual_seed(0)
-    batch_size = 32
-    nheads = 4
+    batch_size = 1 # 32
+    nheads = 1 # 4
     q = torch.randn(batch_size, seqlen_q, nheads, d, device=device, dtype=dtype)
     k, v = torch.randn(batch_size, seqlen_k, 2, d, device=device, dtype=dtype).unbind(dim=2) #torch.randn(batch_size, seqlen_k, 2, nheads, d, device=device, dtype=dtype).unbind(dim=2)
     if bias_shape == '1h1k':
@@ -403,27 +403,30 @@ def test_flash_attn_triton_output(seqlen_q, seqlen_k, d, causal, dtype, bias_sha
     dq, dk, dv = torch.autograd.grad(output, (q, k, v), g)
     dq_ref, dk_ref, dv_ref, = torch.autograd.grad(output_ref, (q, k, v), g)
     dq_pt, dk_pt, dv_pt, = torch.autograd.grad(output_pt, (q, k, v), g)
-    #print(f'dQ max diff: {(dq - dq_ref).abs().max().item()}')
-    #print(f'dK max diff: {(dk - dk_ref).abs().max().item()}')
-    #print(f'dV max diff: {(dv - dv_ref).abs().max().item()}')
-    #print(f'dQ mean diff: {(dq - dq_ref).abs().mean().item()}')
-    #print(f'dK mean diff: {(dk - dk_ref).abs().mean().item()}')
-    #print(f'dV mean diff: {(dv - dv_ref).abs().mean().item()}')
-    #print(f'dQ Pytorch max diff: {(dq_pt - dq_ref).abs().max().item()}')
-    #print(f'dK Pytorch max diff: {(dk_pt - dk_ref).abs().max().item()}')
-    #print(f'dV Pytorch max diff: {(dv_pt - dv_ref).abs().max().item()}')
-    #print(f'dQ Pytorch mean diff: {(dq_pt - dq_ref).abs().mean().item()}')
-    #print(f'dK Pytorch mean diff: {(dk_pt - dk_ref).abs().mean().item()}')
-    #print(f'dV Pytorch mean diff: {(dv_pt - dv_ref).abs().mean().item()}')
+    print(f'dQ max diff: {(dq - dq_ref).abs().max().item()}')
+    print(f'dK max diff: {(dk - dk_ref).abs().max().item()}')
+    print(f'dV max diff: {(dv - dv_ref).abs().max().item()}')
+    print(f'dQ mean diff: {(dq - dq_ref).abs().mean().item()}')
+    print(f'dK mean diff: {(dk - dk_ref).abs().mean().item()}')
+    print(f'dV mean diff: {(dv - dv_ref).abs().mean().item()}')
+    print(f'dQ Pytorch max diff: {(dq_pt - dq_ref).abs().max().item()}')
+    print(f'dK Pytorch max diff: {(dk_pt - dk_ref).abs().max().item()}')
+    print(f'dV Pytorch max diff: {(dv_pt - dv_ref).abs().max().item()}')
+    print(f'dQ Pytorch mean diff: {(dq_pt - dq_ref).abs().mean().item()}')
+    print(f'dK Pytorch mean diff: {(dk_pt - dk_ref).abs().mean().item()}')
+    print(f'dV Pytorch mean diff: {(dv_pt - dv_ref).abs().mean().item()}')
 
     # Check that FlashAttention's numerical error is at most twice the numerical error
     # of a Pytorch implementation.
     assert (output - output_ref).abs().max().item() <= 2 * (output_pt - output_ref).abs().max().item()
     # assert torch.allclose(output, output_ref, rtol=rtol, atol=atol)
 
-    #assert (dq - dq_ref).abs().max().item() <= 2 * (dq_pt - dq_ref).abs().max().item()
-    #assert (dk - dk_ref).abs().max().item() <= 2 * (dk_pt - dk_ref).abs().max().item()
-    #assert (dv - dv_ref).abs().max().item() <= 2 * (dv_pt - dv_ref).abs().max().item()
+    print("dk:",dk)
+    print("dk_ref:",dk_ref)
+    
+    assert (dq - dq_ref).abs().max().item() <= 2 * (dq_pt - dq_ref).abs().max().item()
+    assert (dk - dk_ref).abs().max().item() <= 2 * (dk_pt - dk_ref).abs().max().item()
+    assert (dv - dv_ref).abs().max().item() <= 2 * (dv_pt - dv_ref).abs().max().item()
 
 
 #@pytest.mark.skipif(flash_attn_func is None, reason='Triton is not installed or is too old')
