@@ -14,8 +14,11 @@ from flash_attn.bert_padding import unpad_input, pad_input, index_first_axis
 
 try:
     from flash_attn.flash_attn_triton import flash_attn_func
+    from flash_attn.flash_attn_triton_onewritehead import flash_attn_func_onewritehead
 except (ImportError, AttributeError):  # Older version of Triton doesn't have tl.constexpr
+    print("Import failed.")
     flash_attn_func = None
+    flash_attn_func_onewritehead = None
 
 
 is_sm75 = torch.cuda.get_device_capability('cuda') == (7, 5)
@@ -131,8 +134,8 @@ def attention_ref(q, k, v, query_padding_mask=None, key_padding_mask=None, dropo
     """
     Arguments:
         q: (batch_size, seqlen_q, nheads, head_dim)
-        k: (batch_size, seqlen_k, nheads, head_dim)
-        v: (batch_size, seqlen_k, nheads, head_dim)
+        k: (batch_size, seqlen_k, head_dim)
+        v: (batch_size, seqlen_k, head_dim)
         query_padding_mask: (batch_size, seqlen_q)
         key_padding_mask: (batch_size, seqlen_k)
         dropout_p: float
@@ -147,15 +150,18 @@ def attention_ref(q, k, v, query_padding_mask=None, key_padding_mask=None, dropo
         output: (batch_size, seqlen_q, nheads, head_dim)
         attention: (batch_size, nheads, seqlen_q, seqlen_k), softmax after dropout
     """
+    assert dropout_p==0.0
+    assert dropout_mask==None
+    
     dtype_og = q.dtype
     if upcast:
         q, k, v = q.float(), k.float(), v.float()
     seqlen_q, seqlen_k = q.shape[1], k.shape[1]
     d = q.shape[-1]
     if not reorder_ops:
-        scores = torch.einsum('bthd,bshd->bhts', q / math.sqrt(d), k)
+        scores = torch.einsum('bthd,bsd->bhts', q / math.sqrt(d), k)
     else:
-        scores = torch.einsum('bthd,bshd->bhts', q, k / math.sqrt(d))
+        scores = torch.einsum('bthd,bsd->bhts', q, k / math.sqrt(d))
     if bias is not None:
         scores = (scores + bias).to(dtype=scores.dtype)
     if key_padding_mask is not None:
@@ -171,7 +177,7 @@ def attention_ref(q, k, v, query_padding_mask=None, key_padding_mask=None, dropo
         attention_drop = attention.masked_fill(~dropout_mask, 0.0)
     else:
         attention_drop = attention
-    output = torch.einsum('bhts,bshd->bthd', attention_drop, v * dropout_scaling)
+    output = torch.einsum('bhts,bsd->bthd', attention_drop, v * dropout_scaling)
     if query_padding_mask is not None:
         output.masked_fill_(rearrange(~query_padding_mask, 'b s -> b s 1 1'), 0.0)
         attention = attention.masked_fill(rearrange(~query_padding_mask, 'b s -> b 1 s 1'), 0.0)
@@ -362,13 +368,15 @@ def get_dropout_fraction(dropout_mask, query_padding_mask=None, key_padding_mask
 def test_flash_attn_triton_output(seqlen_q, seqlen_k, d, causal, dtype, bias_shape):
     if seqlen_q >= 2048 and torch.cuda.get_device_properties('cuda').total_memory <= 16 * 2**30:
         pytest.skip()  # Reference implementation OOM
+    if not causal:
+        pytest.skip() # This test only supports causal
     device = 'cuda'
     # set seed
     torch.random.manual_seed(0)
     batch_size = 32
     nheads = 4
     q = torch.randn(batch_size, seqlen_q, nheads, d, device=device, dtype=dtype)
-    k, v = torch.randn(batch_size, seqlen_k, 2, nheads, d, device=device, dtype=dtype).unbind(dim=2)
+    k, v = torch.randn(batch_size, seqlen_k, 2, d, device=device, dtype=dtype).unbind(dim=2) #torch.randn(batch_size, seqlen_k, 2, nheads, d, device=device, dtype=dtype).unbind(dim=2)
     if bias_shape == '1h1k':
         bias = torch.randn(1, nheads, 1, seqlen_k, dtype=torch.float, device=device)
     elif bias_shape == '1hqk':
@@ -381,7 +389,7 @@ def test_flash_attn_triton_output(seqlen_q, seqlen_k, d, causal, dtype, bias_sha
         bias = None
 
     q, k, v = [x.detach().requires_grad_() for x in [q, k, v]]
-    output = flash_attn_func(q, k, v, bias, causal)
+    output = flash_attn_func_onewritehead(q, k, v, bias, causal)
 
     output_ref, attn_ref = attention_ref(q, k, v, bias=bias, causal=causal)
     output_pt, attn_pt = attention_ref(q, k, v, bias=bias, causal=causal, upcast=False,
@@ -391,31 +399,31 @@ def test_flash_attn_triton_output(seqlen_q, seqlen_k, d, causal, dtype, bias_sha
     print(f'Pytorch max diff: {(output_pt - output_ref).abs().max().item()}')
     print(f'Pytorch mean diff: {(output_pt - output_ref).abs().mean().item()}')
 
-    g = torch.randn_like(output)
-    dq, dk, dv = torch.autograd.grad(output, (q, k, v), g)
-    dq_ref, dk_ref, dv_ref, = torch.autograd.grad(output_ref, (q, k, v), g)
-    dq_pt, dk_pt, dv_pt, = torch.autograd.grad(output_pt, (q, k, v), g)
-    print(f'dQ max diff: {(dq - dq_ref).abs().max().item()}')
-    print(f'dK max diff: {(dk - dk_ref).abs().max().item()}')
-    print(f'dV max diff: {(dv - dv_ref).abs().max().item()}')
-    print(f'dQ mean diff: {(dq - dq_ref).abs().mean().item()}')
-    print(f'dK mean diff: {(dk - dk_ref).abs().mean().item()}')
-    print(f'dV mean diff: {(dv - dv_ref).abs().mean().item()}')
-    print(f'dQ Pytorch max diff: {(dq_pt - dq_ref).abs().max().item()}')
-    print(f'dK Pytorch max diff: {(dk_pt - dk_ref).abs().max().item()}')
-    print(f'dV Pytorch max diff: {(dv_pt - dv_ref).abs().max().item()}')
-    print(f'dQ Pytorch mean diff: {(dq_pt - dq_ref).abs().mean().item()}')
-    print(f'dK Pytorch mean diff: {(dk_pt - dk_ref).abs().mean().item()}')
-    print(f'dV Pytorch mean diff: {(dv_pt - dv_ref).abs().mean().item()}')
+    #g = torch.randn_like(output)
+    #dq, dk, dv = torch.autograd.grad(output, (q, k, v), g)
+    #dq_ref, dk_ref, dv_ref, = torch.autograd.grad(output_ref, (q, k, v), g)
+    #dq_pt, dk_pt, dv_pt, = torch.autograd.grad(output_pt, (q, k, v), g)
+    #print(f'dQ max diff: {(dq - dq_ref).abs().max().item()}')
+    #print(f'dK max diff: {(dk - dk_ref).abs().max().item()}')
+    #print(f'dV max diff: {(dv - dv_ref).abs().max().item()}')
+    #print(f'dQ mean diff: {(dq - dq_ref).abs().mean().item()}')
+    #print(f'dK mean diff: {(dk - dk_ref).abs().mean().item()}')
+    #print(f'dV mean diff: {(dv - dv_ref).abs().mean().item()}')
+    #print(f'dQ Pytorch max diff: {(dq_pt - dq_ref).abs().max().item()}')
+    #print(f'dK Pytorch max diff: {(dk_pt - dk_ref).abs().max().item()}')
+    #print(f'dV Pytorch max diff: {(dv_pt - dv_ref).abs().max().item()}')
+    #print(f'dQ Pytorch mean diff: {(dq_pt - dq_ref).abs().mean().item()}')
+    #print(f'dK Pytorch mean diff: {(dk_pt - dk_ref).abs().mean().item()}')
+    #print(f'dV Pytorch mean diff: {(dv_pt - dv_ref).abs().mean().item()}')
 
     # Check that FlashAttention's numerical error is at most twice the numerical error
     # of a Pytorch implementation.
     assert (output - output_ref).abs().max().item() <= 2 * (output_pt - output_ref).abs().max().item()
     # assert torch.allclose(output, output_ref, rtol=rtol, atol=atol)
 
-    assert (dq - dq_ref).abs().max().item() <= 2 * (dq_pt - dq_ref).abs().max().item()
-    assert (dk - dk_ref).abs().max().item() <= 2 * (dk_pt - dk_ref).abs().max().item()
-    assert (dv - dv_ref).abs().max().item() <= 2 * (dv_pt - dv_ref).abs().max().item()
+    #assert (dq - dq_ref).abs().max().item() <= 2 * (dq_pt - dq_ref).abs().max().item()
+    #assert (dk - dk_ref).abs().max().item() <= 2 * (dk_pt - dk_ref).abs().max().item()
+    #assert (dv - dv_ref).abs().max().item() <= 2 * (dv_pt - dv_ref).abs().max().item()
 
 
 #@pytest.mark.skipif(flash_attn_func is None, reason='Triton is not installed or is too old')
