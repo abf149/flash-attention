@@ -116,7 +116,7 @@ def pytorch_profiler(fn, *inputs, trace_filename=None, backward=False, amp=False
     with torch.profiler.profile(
         activities=activities,
         record_shapes=True,
-        # profile_memory=True,
+        profile_memory=True,
         with_stack=True,
     ) as prof:
         with torch.autocast(device_type='cuda', dtype=amp_dtype, enabled=amp):
