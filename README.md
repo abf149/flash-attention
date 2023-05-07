@@ -1,3 +1,26 @@
+# FlashAttention + One write head is all you need (OWH)
+
+The OWH paper integration may be found in the following files:
+* flash_attn/flash_attn_triton_onewritehead.py - OWH integrated into the Triton implementation of FlashAttention.
+   * Only causal mode is supported since the OWH paper specifically address the scenario of incremental causal attention
+   * For ease of completing the task quickly, some simplifying constraints were imposed including dropout_fraction=0.0,
+     no attention bias, no special masking is applied beyond causal masking
+
+Benchmarks:
+* benchmarks/benchmark_causal.py - I adapted the FlashAttention authors' causal attention benchmark into a benchmarking CLI tool which I call from Jupyter Notebook
+
+Tests:
+* tests/test_flash_attn_onewritehead.py - I adapted the FlashAttention authors' triton regression tests to test my Triton-language FlashAttention + OWH implementation. This pytest script checks (1) output correctness for forward and backward passes against the inner attention, and (2) for race conditions.
+
+Automation:
+* Challenge problem.ipynb - Jupyter notebook facilitates automation of:
+    * Building and deploying my modifications to the FlashAttention Docker image for testing and benchmarking
+    * Performing sweep-test experiments which measure key metrics of inner-attention performance such as latency and memory consumption
+    * Generating useful plots
+    * Running the regression tests
+
+Original paper:
+------
 # FlashAttention
 This repository provides the official implementation of FlashAttention from the
 following paper.
