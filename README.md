@@ -2,7 +2,7 @@
 
 The OWH paper integration may be found in the following files:
 * flash_attn/flash_attn_triton_onewritehead.py - OWH integrated into the Triton implementation of FlashAttention.
-   * Only causal mode is supported since the OWH paper specifically address the scenario of incremental causal attention
+   * Only causal mode is supported since the OWH paper specifically addresses the scenario of incremental causal attention
    * For ease of completing the task quickly, some simplifying constraints were imposed including dropout_fraction=0.0,
      no attention bias, no special masking is applied beyond causal masking
 
