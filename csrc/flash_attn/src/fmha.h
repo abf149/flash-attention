@@ -159,6 +159,8 @@ struct FMHA_dgrad_params : public FMHA_fprop_params {
 
     // The dO matrix. We assume it is contiguous.
     void * __restrict__ do_ptr;
+    // The dsoftmax_lse_ptr matrix. We assume it is contiguous.
+    void * __restrict__ dsoftmax_lse_ptr;    
 
     // The pointer to the softmax d sum.
     void * __restrict__ dsoftmax_sum;

@@ -176,7 +176,7 @@ def attention_ref(q, k, v, query_padding_mask=None, key_padding_mask=None, dropo
     if query_padding_mask is not None:
         output.masked_fill_(rearrange(~query_padding_mask, 'b s -> b s 1 1'), 0.0)
         attention = attention.masked_fill(rearrange(~query_padding_mask, 'b s -> b 1 s 1'), 0.0)
-    return output.to(dtype=dtype_og), attention.to(dtype=dtype_og)
+    return output.to(dtype=dtype_og), attention.to(dtype=dtype_og), scores
 
 
 def attention_kvpacked_ref(q, kv, query_padding_mask=None, key_padding_mask=None, dropout_p=0.0,
@@ -585,9 +585,9 @@ def test_flash_attn_unpadded_lse_singular(seqlen, d, dropout_p, causal, dtype):
     print("key_padding_mask:",key_padding_mask)
     print("dropout_mask:",dropout_mask)
     print("causal:",causal)
-    output_ref, attn_ref = attention_ref(q, k, v, query_padding_mask, key_padding_mask,
+    output_ref, attn_ref, scores_ref = attention_ref(q, k, v, query_padding_mask, key_padding_mask,
                                          dropout_p, dropout_mask, causal=causal)
-    output_pt, attn_pt = attention_ref(q, k, v, query_padding_mask, key_padding_mask,
+    output_pt, attn_pt, scores_pt = attention_ref(q, k, v, query_padding_mask, key_padding_mask,
                                        dropout_p, dropout_mask, causal=causal,
                                        upcast=False, reorder_ops=True)
     print(f'Actual dropout fraction: {dropout_fraction}')
@@ -616,10 +616,15 @@ def test_flash_attn_unpadded_lse_singular(seqlen, d, dropout_p, causal, dtype):
         
     # LSE backprop test
     g_output = torch.randn_like(output)
-    g_lse = torch.randn_like(sm_lse) *1e3
+    g_output_null = torch.zeros_like(output)
+    g_lse = torch.randn_like(sm_lse)*1.0e4
+    g_lse_ref=g_lse.clone().detach()
+    g_lse_pt=g_lse.clone().detach()
     g_attn_ref = torch.randn_like(attn_ref)
+    print("g_output:",g_output)
+    print("g_output_null:",g_output_null)    
     print("g_lse:",g_lse)
-    dq_unpad_lse, dk_unpad_lse = torch.autograd.grad(sm_lse, (q_unpad, k_unpad), g_lse)
+    dq_unpad_lse, dk_unpad_lse = torch.autograd.grad((output,sm_lse), (q_unpad, k_unpad), (g_output_null,g_lse))
     dq_lse = dq_pad_fn(dq_unpad_lse)
     dk_lse = dk_pad_fn(dk_unpad_lse)
     #dv_lse = dk_pad_fn(dv_unpad_lse)
@@ -638,16 +643,49 @@ def test_flash_attn_unpadded_lse_singular(seqlen, d, dropout_p, causal, dtype):
     print("attn_ref",attn_ref)
     print("pytorch logsumexp",torch.logsumexp(attn_ref,3))
     g_pylse = torch.randn_like(torch.logsumexp(attn_ref,3))
-    dq_ref_lse, dk_ref_lse = torch.autograd.grad(torch.logsumexp(attn_ref,3), (q, k), g_lse)
-    
+    #torch.logsumexp(attn_ref,3)
+    l1=torch.log(torch.sum(torch.exp(attn_ref),dim=3))
+    xk=torch.nn.functional.softmax(attn_ref.float(),dim=3)
+    print("l1:",l1.shape)
+    print(l1)
+    print("xk:",xk.shape)
+    print(xk)    
+    print("max:",torch.max(attn_ref))
+    print("min:",torch.min(attn_ref))    
+    print("nan:",torch.any(torch.isnan(torch.exp(attn_ref))))
+
+    #xk=torch.nn.functional.softmax(attn_ref.float(),dim=3)
+    #g_atten_ref_deriv=torch.zeros_like(g_atten_ref)
+
+    #for b in range(xk.shape[0]):
+    #    for h in range(xk.shape[1]):
+    #        for r in range(xk.shape[2]):
+    #            for c in range(xk.shape[3]):
+    #                g_atten_ref_deriv[b,h,r,c]=g_lse[b,h,r]*xk[b,h,r,c]
+
+    #print("g_atten_ref_deriv:",g_atten_ref_deriv)
+
+    #g_lse = torch.randn_like(sm_lse)
+
+    dq_ref_lse, dk_ref_lse = torch.autograd.grad(torch.logsumexp(scores_ref,dim=3), (q, k), g_lse_ref)
+
+    #dattn_ref, = torch.autograd.grad(torch.logsumexp(attn_ref,dim=3), (attn_ref), g_lse)
+
+    #print("dattn_ref:",dattn_ref)
+
+    #print("count:",dattn_ref.count_nonzero())
+
     print("dq_ref_lse:",dq_ref_lse)
     print("dk_ref_lse:",dk_ref_lse)    
     
     #dq_ref_lse=dq_pad_fn(dq_ref_lse_unpad)
     #dk_ref_lse=dk_pad_fn(dk_ref_lse_unpad)
     #dv_ref_lse=dv_pad_fn(dv_ref_lse_unpad)
-    
-    dq_pt_lse, dk_pt_lse = torch.autograd.grad(torch.logsumexp(attn_pt,3), (q, k), g_lse)        
+    #g_lse = torch.randn_like(sm_lse)
+
+    #attn_pt.requires_grad
+    #l=torch.logsumexp(attn_pt.float(),3)
+    dq_pt_lse, dk_pt_lse = torch.autograd.grad(torch.logsumexp(scores_pt,3), (q, k), g_lse_pt)        
     
     print("dq_pt_lse:",dq_pt_lse)
     print("dk_pt_lse:",dk_pt_lse)     
@@ -737,9 +775,9 @@ def test_flash_attn_unpadded_lse(seqlen, d, dropout_p, causal, dtype):
     dropout_fraction = get_dropout_fraction(dropout_mask, query_padding_mask, key_padding_mask,
                                             causal=causal)
 
-    output_ref, attn_ref = attention_ref(q, k, v, query_padding_mask, key_padding_mask,
+    output_ref, attn_ref, scores_ref = attention_ref(q, k, v, query_padding_mask, key_padding_mask,
                                          dropout_p, dropout_mask, causal=causal)
-    output_pt, attn_pt = attention_ref(q, k, v, query_padding_mask, key_padding_mask,
+    output_pt, attn_pt, scores_pt = attention_ref(q, k, v, query_padding_mask, key_padding_mask,
                                        dropout_p, dropout_mask, causal=causal,
                                        upcast=False, reorder_ops=True)
     print(f'Actual dropout fraction: {dropout_fraction}')
@@ -768,7 +806,11 @@ def test_flash_attn_unpadded_lse(seqlen, d, dropout_p, causal, dtype):
         
     # LSE backprop test
     g_output = torch.randn_like(output)
-    g_lse = torch.randn_like(sm_lse)*1e4
+    g_output_ref = g_output.clone().detach()
+    g_output_pt = g_output.clone().detach()
+    g_lse = torch.randn_like(sm_lse)*1.0e4
+    g_lse_ref=g_lse.clone().detach()
+    g_lse_pt=g_lse.clone().detach()
     dq_unpad_lse, dk_unpad_lse, dv_unpad_lse = torch.autograd.grad((output,sm_lse), (q_unpad, k_unpad, v_unpad), (g_output,g_lse), allow_unused=True)
     dq_lse = dq_pad_fn(dq_unpad_lse)
     dk_lse = dk_pad_fn(dk_unpad_lse)
@@ -785,13 +827,13 @@ def test_flash_attn_unpadded_lse(seqlen, d, dropout_p, causal, dtype):
     #dq_ref_lse, dk_ref_lse, dv_ref_lse = torch.autograd.grad((output_ref,torch.logsumexp(attn_ref,3)), inputs=(q, k, v), grad_outputs=(g_output,g_lse),create_graph=True)
     #dq_pt_lse, dk_pt_lse, dv_ref_lse = torch.autograd.grad((output_pt,torch.logsumexp(attn_pt,3)), inputs=(q, k, v), grad_outputs=(g_output,g_lse),create_graph=True)        
 
-    dq_ref_lse, dk_ref_lse, dv_ref_lse = torch.autograd.grad((output_ref,torch.logsumexp(attn_ref,3)), (q, k, v), (g_output,g_lse), allow_unused=True)
+    dq_ref_lse, dk_ref_lse, dv_ref_lse = torch.autograd.grad((output_ref,torch.logsumexp(scores_ref,3)), (q, k, v), (g_output,g_lse), allow_unused=True)
     
     #dq_ref_lse=dq_pad_fn(dq_ref_lse_unpad)
     #dk_ref_lse=dk_pad_fn(dk_ref_lse_unpad)
     #dv_ref_lse=dv_pad_fn(dv_ref_lse_unpad)
     
-    dq_pt_lse, dk_pt_lse, dv_pt_lse = torch.autograd.grad((output_pt,torch.logsumexp(attn_pt,3)), (q, k, v), (g_output,g_lse), allow_unused=True)        
+    dq_pt_lse, dk_pt_lse, dv_pt_lse = torch.autograd.grad((output_pt,torch.logsumexp(scores_pt,3)), (q, k, v), (g_output,g_lse), allow_unused=True)        
     
     #dq_pt_lse=dq_pad_fn(dq_pt_lse_unpad)
     #dk_pt_lse=dk_pad_fn(dk_pt_lse_unpad)
@@ -878,9 +920,9 @@ def test_flash_attn_unpadded(seqlen, d, dropout_p, causal, dtype):
     dropout_fraction = get_dropout_fraction(dropout_mask, query_padding_mask, key_padding_mask,
                                             causal=causal)
 
-    output_ref, attn_ref = attention_ref(q, k, v, query_padding_mask, key_padding_mask,
+    output_ref, attn_ref, scores_ref = attention_ref(q, k, v, query_padding_mask, key_padding_mask,
                                          dropout_p, dropout_mask, causal=causal)
-    output_pt, attn_pt = attention_ref(q, k, v, query_padding_mask, key_padding_mask,
+    output_pt, attn_pt, scores_pt = attention_ref(q, k, v, query_padding_mask, key_padding_mask,
                                        dropout_p, dropout_mask, causal=causal,
                                        upcast=False, reorder_ops=True)
     print(f'Actual dropout fraction: {dropout_fraction}')

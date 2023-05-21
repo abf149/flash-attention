@@ -28,7 +28,7 @@ def _flash_attn_forward(q, k, v, out, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, 
     return out, softmax_lse, rng_state, S_dmask
 
 
-def _flash_attn_backward(dout, q, k, v, out, softmax_lse, dq, dk, dv, cu_seqlens_q, cu_seqlens_k,
+def _flash_attn_backward_lse(dout, dsoftmax_lse, q, k, v, out, softmax_lse, dq, dk, dv, cu_seqlens_q, cu_seqlens_k,
                          max_seqlen_q, max_seqlen_k, dropout_p, softmax_scale, causal,
                          rng_state=None, num_splits=0, generator=None):
     """
@@ -39,8 +39,9 @@ def _flash_attn_backward(dout, q, k, v, out, softmax_lse, dq, dk, dv, cu_seqlens
     This hyperparameter can be tuned for performance, but default value (heuristic) should work fine.
     """
     dout = dout.contiguous()  # CUDA code assumes that dout is contiguous
+    dsoftmax_lse = dsoftmax_lse.contiguous()
     _, _, _, softmax_d = flash_attn_cuda.bwd(
-        dout, q, k, v, out, softmax_lse, dq, dk, dv, cu_seqlens_q, cu_seqlens_k,
+        dout, dsoftmax_lse, q, k, v, out, softmax_lse, dq, dk, dv, cu_seqlens_q, cu_seqlens_k,
         max_seqlen_q, max_seqlen_k, dropout_p, softmax_scale, False, causal,
         num_splits, generator, rng_state)
     # if dk.isnan().any() or dk.isnan().any() or dv.isnan().any() or softmax_d.isnan().any():
@@ -136,14 +137,14 @@ class FlashAttnFunc(torch.autograd.Function):
         return out if not return_softmax else (out, softmax_lse, S_dmask)
 
     @staticmethod
-    def backward(ctx, dout, softmax_lse, *args):
+    def backward(ctx, dout, dsoftmax_lse, *args):
         print("dout:",dout)
-        print("softmax_lse:",softmax_lse)
+        print("dsoftmax_lse:",dsoftmax_lse)
         print("args:",args)
         q, k, v, out, softmax_lse, cu_seqlens_q, cu_seqlens_k, rng_state = ctx.saved_tensors
         dq, dk, dv = torch.empty_like(q), torch.empty_like(k), torch.empty_like(v)
-        _flash_attn_backward(
-            dout, q, k, v, out, softmax_lse, dq, dk, dv, cu_seqlens_q, cu_seqlens_k,
+        _flash_attn_backward_lse(
+            dout, dsoftmax_lse, q, k, v, out, softmax_lse, dq, dk, dv, cu_seqlens_q, cu_seqlens_k,
             ctx.max_seqlen_q, ctx.max_seqlen_k, ctx.dropout_p, ctx.softmax_scale, ctx.causal,
             rng_state=rng_state, num_splits=1 if ctx.deterministic else 0,
         )

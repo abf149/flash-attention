@@ -176,6 +176,63 @@ void set_params_dgrad(FMHA_dgrad_params &params,
     params.dsoftmax_sum = dsoftmax_sum_d;
 }
 
+void set_params_dgrad_lse(FMHA_dgrad_params &params,
+                      // sizes
+                      const size_t b,
+                      const size_t seqlen_q,
+                      const size_t seqlen_k,
+                      const size_t h,
+                      const size_t d,
+                      // device pointers
+                      const at::Tensor q,
+                      const at::Tensor k,
+                      const at::Tensor v,
+                      const at::Tensor out,
+                      at::Tensor dq,
+                      at::Tensor dk,
+                      at::Tensor dv,
+                      void *cu_seqlens_q_d,
+                      void *cu_seqlens_k_d,
+                      void *dq_tmp_d,
+                      void *do_packed_d,
+                      void *dsoftmax_lse_d,
+                      void *softmax_lse_d,
+                      void *dsoftmax_sum_d,
+                      float p_dropout,
+                      float softmax_scale,
+                      bool is_causal,
+                      int num_splits) {
+
+    set_params_fprop(params,
+                     b, seqlen_q, seqlen_k, h, d,
+                     q, k, v, out,
+                     cu_seqlens_q_d,
+                     cu_seqlens_k_d,
+                     dq_tmp_d,  // Reusing the o_tmp_ptr variable to store dq_tmp
+                     nullptr,
+                     softmax_lse_d,
+                     p_dropout,
+                     softmax_scale,
+                     is_causal,
+                     num_splits);
+
+    // Set the pointers and strides.
+    params.dq_ptr = dq.data_ptr();
+    params.dk_ptr = dk.data_ptr();
+    params.dv_ptr = dv.data_ptr();
+    params.dq_row_stride_in_elts = dq.stride(0);
+    params.dk_row_stride_in_elts = dk.stride(0);
+    params.dv_row_stride_in_elts = dv.stride(0);
+    params.dq_head_stride_in_elts = dq.stride(1);
+    params.dk_head_stride_in_elts = dk.stride(1);
+    params.dv_head_stride_in_elts = dv.stride(1);
+    params.do_ptr = do_packed_d;
+    params.dsoftmax_lse_ptr = dsoftmax_lse_d;
+
+    // Softmax sum
+    params.dsoftmax_sum = dsoftmax_sum_d;
+}
+
 void run_fmha_fwd(Launch_params<FMHA_fprop_params> &launch_params) {
     if (launch_params.params.d <= 32) {
         run_fmha_fwd_hdim32(launch_params);
@@ -341,6 +398,7 @@ void run_fmha_bwd(FMHA_dgrad_params &params, cudaStream_t stream, const bool con
 
 std::vector<at::Tensor>
 mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
+        const at::Tensor &dsoftmax_lse,  // total_q x num_heads, x head_size
         const at::Tensor &q,   // total_q x num_heads x head_size, total_q := \sum_{i=0}^{b} s_i
         const at::Tensor &k,   // total_k x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i
         const at::Tensor &v,   // total_k x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i
@@ -389,6 +447,7 @@ mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
     TORCH_CHECK(v.is_cuda());
     TORCH_CHECK(out.is_cuda());
     TORCH_CHECK(dout.is_cuda());
+    TORCH_CHECK(dsoftmax_lse.is_cuda());
     TORCH_CHECK(softmax_lse_.is_cuda());
     TORCH_CHECK(cu_seqlens_q.is_cuda());
     TORCH_CHECK(cu_seqlens_k.is_cuda());
@@ -398,6 +457,7 @@ mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
     TORCH_CHECK(v.stride(-1) == 1);
     TORCH_CHECK(out.is_contiguous());
     TORCH_CHECK(dout.is_contiguous());
+    TORCH_CHECK(dsoftmax_lse.is_contiguous());
     TORCH_CHECK(dq.stride(-1) == 1);
     TORCH_CHECK(dk.stride(-1) == 1);
     TORCH_CHECK(dv.stride(-1) == 1);
@@ -411,6 +471,11 @@ mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
     const int num_heads = sizes[H_DIM];
     const int head_size = sizes[D_DIM];
     const int total_k = k.size(TOTAL_DIM);
+    std::cout<<"batch_size:"<<batch_size<<'\n';
+    std::cout<<"total_q:"<<total_q<<'\n';
+    std::cout<<"num_heads:"<<num_heads<<'\n';
+    std::cout<<"head_size:"<<head_size<<'\n';
+    std::cout<<"total_k:"<<total_k<<'\n';
     TORCH_CHECK(batch_size > 0);
     TORCH_CHECK((head_size % 8 == 0) && (head_size <= 128));
     if (head_size > 64) {
@@ -438,6 +503,11 @@ mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
     int max_seqlen_q = ((max_seqlen_q_ + 16 - 1) / 16) * 16;
     bool loop = max_seqlen_k > blocksize_c;
 
+    std::cout<<"blocksize_c:"<<blocksize_c<<'\n';
+    std::cout<<"max_seqlen_k:"<<max_seqlen_k<<'\n';
+    std::cout<<"max_seqlen_q:"<<max_seqlen_q<<'\n';
+    std::cout<<"loop:"<<loop<<'\n';
+
     // Otherwise the kernel will be launched from cuda:0 device
     // Cast to char to avoid compiler warning about narrowing
     at::cuda::CUDAGuard device_guard{(char)q.get_device()};
@@ -459,7 +529,7 @@ mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
 
     FMHA_dgrad_params params;
 
-    set_params_dgrad(params,
+    set_params_dgrad_lse(params,
                      batch_size,
                      max_seqlen_q,
                      max_seqlen_k,
@@ -471,6 +541,7 @@ mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
                      cu_seqlens_k.data_ptr(),
                      loop ? dq_tmp.data_ptr() : nullptr,
                      dout.data_ptr(),
+                     dsoftmax_lse.data_ptr(),
                      softmax_lse.data_ptr(),
                      softmax_d.data_ptr(),
                      p_dropout,
