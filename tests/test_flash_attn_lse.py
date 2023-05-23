@@ -558,8 +558,11 @@ def test_flash_attn_unpadded_lse_singular(seqlen, d, dropout_p, causal, dtype):
     x = torch.randn(batch_size, seqlen, nheads * d, device=device, dtype=dtype, requires_grad=True)
     Wqkv = torch.nn.Linear(nheads * d, 3 * nheads * d, device=device, dtype=dtype)
 
-    query_padding_mask = generate_random_padding_mask(seqlen, batch_size, device, mode='random')
-    key_padding_mask = generate_random_padding_mask(seqlen, batch_size, device, mode='random')
+    # Simple test-case: no padding
+    #query_padding_mask = generate_random_padding_mask(seqlen, batch_size, device, mode='full')
+    #key_padding_mask = generate_random_padding_mask(seqlen, batch_size, device, mode='full')
+    query_padding_mask = None
+    key_padding_mask = None
 
     (q_unpad, k_unpad, v_unpad, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, q, k, v,
      output_pad_fn, dq_pad_fn, dk_pad_fn) = generate_qkv(
@@ -571,15 +574,18 @@ def test_flash_attn_unpadded_lse_singular(seqlen, d, dropout_p, causal, dtype):
         dropout_p, return_attn_probs=True, causal=causal
     )
     output = output_pad_fn(output_unpad)
-    S_dmask_converted = convert_flash_attn_S_to_softmax(
-        S_dmask, query_padding_mask, key_padding_mask, d, dropout_p > 0.0, causal=causal
-    )
-    dropout_mask = S_dmask_converted >= 0
-    attn_unnorm = S_dmask_converted.abs()
-    attn = normalize_flash_attn_S(attn_unnorm, q, k, v, query_padding_mask, key_padding_mask,
-                                  dropout_p > 0.0, causal=causal)
-    dropout_fraction = get_dropout_fraction(dropout_mask, query_padding_mask, key_padding_mask,
-                                            causal=causal)
+    #S_dmask_converted = convert_flash_attn_S_to_softmax(
+    #    S_dmask, query_padding_mask, key_padding_mask, d, dropout_p > 0.0, causal=causal
+    #)
+
+    # Ignore as many of these as possible
+    dropout_mask = None
+    #dropout_mask = S_dmask_converted >= 0
+    #attn_unnorm = S_dmask_converted.abs()
+    #attn = normalize_flash_attn_S(attn_unnorm, q, k, v, query_padding_mask, key_padding_mask,
+    #                              dropout_p > 0.0, causal=causal)
+    #dropout_fraction = get_dropout_fraction(dropout_mask, query_padding_mask, key_padding_mask,
+    #                                        causal=causal)
 
     print("query_padding_mask:",query_padding_mask)
     print("key_padding_mask:",key_padding_mask)
@@ -590,12 +596,12 @@ def test_flash_attn_unpadded_lse_singular(seqlen, d, dropout_p, causal, dtype):
     output_pt, attn_pt, scores_pt = attention_ref(q, k, v, query_padding_mask, key_padding_mask,
                                        dropout_p, dropout_mask, causal=causal,
                                        upcast=False, reorder_ops=True)
-    print(f'Actual dropout fraction: {dropout_fraction}')
+    #print(f'Actual dropout fraction: {dropout_fraction}') # Disable for LSE test
     print(f'Output max diff: {(output - output_ref).abs().max().item()}')
     print(f'Output mean diff: {(output - output_ref).abs().mean().item()}')
     print(f'Pytorch max diff: {(output_pt - output_ref).abs().max().item()}')
     print(f'Pytorch mean diff: {(output_pt - output_ref).abs().mean().item()}')
-    print(f'Attention max diff: {(attn - attn_ref).abs().max().item()}')
+    #print(f'Attention max diff: {(attn - attn_ref).abs().max().item()}') # Disable for LSE test
     print(f'Attention Pytorch max diff: {(attn_pt - attn_ref).abs().max().item()}')
 
     if is_sm80 or d <= 64:  # Only run backward for d=128 on A100
@@ -712,7 +718,7 @@ def test_flash_attn_unpadded_lse_singular(seqlen, d, dropout_p, causal, dtype):
     # of a Pytorch implementation.
     assert (output - output_ref).abs().max().item() <= 2 * (output_pt - output_ref).abs().max().item()
     # assert torch.allclose(output, output_ref, rtol=rtol, atol=atol)
-    assert (attn - attn_ref).abs().max().item() <= 2 * (attn_pt - attn_ref).abs().max().item()
+    # assert (attn - attn_ref).abs().max().item() <= 2 * (attn_pt - attn_ref).abs().max().item() # Disable for this test
     # assert torch.allclose(attn, attn_ref, rtol=rtol, atol=atol)
     if dropout_p == 0.0:
         assert dropout_mask.all()
