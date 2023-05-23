@@ -3,8 +3,11 @@
 // Splitting the different head dimensions to different files to speed up compilation.
 
 #include "fmha_bwd_launch_template.h"
+#include <iostream>
 
 void run_fmha_bwd_hdim64(FMHA_dgrad_params &params, cudaStream_t stream, const bool configure) {
+    //std::cout<<"run_fmha\n";
+
     FP16_SWITCH(params.is_bf16, ([&] {
         auto dprops = at::cuda::getCurrentDeviceProperties();
         if (params.seqlen_k == 128) {

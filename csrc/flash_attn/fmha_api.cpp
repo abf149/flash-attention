@@ -388,10 +388,13 @@ mha_fwd(const at::Tensor &q,         // total_q x num_heads x head_size, total_q
 
 void run_fmha_bwd(FMHA_dgrad_params &params, cudaStream_t stream, const bool configure) {
   if (params.d <= 32) {
+      //std::cout<<"d value <= 32: "<<params.d<<'\n';
       run_fmha_bwd_hdim32(params, stream, configure);
   } else if (params.d <= 64) {
+      //std::cout<<"d value <= 64: "<<params.d<<'\n';
       run_fmha_bwd_hdim64(params, stream, configure);
   } else if (params.d <= 128) {
+      //std::cout<<"d value <= 128: "<<params.d<<'\n';
       run_fmha_bwd_hdim128(params, stream, configure);
   }
 }
