@@ -401,7 +401,7 @@ void run_fmha_bwd(FMHA_dgrad_params &params, cudaStream_t stream, const bool con
 
 std::vector<at::Tensor>
 mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
-        const at::Tensor &dsoftmax_lse,  // total_q x num_heads, x head_size
+        const at::Tensor &dsoftmax_lse_,  // b x h x s softmax logsumexp
         const at::Tensor &q,   // total_q x num_heads x head_size, total_q := \sum_{i=0}^{b} s_i
         const at::Tensor &k,   // total_k x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i
         const at::Tensor &v,   // total_k x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i
@@ -450,7 +450,7 @@ mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
     TORCH_CHECK(v.is_cuda());
     TORCH_CHECK(out.is_cuda());
     TORCH_CHECK(dout.is_cuda());
-    TORCH_CHECK(dsoftmax_lse.is_cuda());
+    TORCH_CHECK(dsoftmax_lse_.is_cuda());
     TORCH_CHECK(softmax_lse_.is_cuda());
     TORCH_CHECK(cu_seqlens_q.is_cuda());
     TORCH_CHECK(cu_seqlens_k.is_cuda());
@@ -460,7 +460,7 @@ mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
     TORCH_CHECK(v.stride(-1) == 1);
     TORCH_CHECK(out.is_contiguous());
     TORCH_CHECK(dout.is_contiguous());
-    TORCH_CHECK(dsoftmax_lse.is_contiguous());
+    TORCH_CHECK(dsoftmax_lse_.is_contiguous());
     TORCH_CHECK(dq.stride(-1) == 1);
     TORCH_CHECK(dk.stride(-1) == 1);
     TORCH_CHECK(dv.stride(-1) == 1);
@@ -516,7 +516,9 @@ mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
     at::cuda::CUDAGuard device_guard{(char)q.get_device()};
 
     // It's possible the softmax_lse_ from the fwd has a different length since blocksize_c could be different.
+    // Should also match dsoftmax_lse
     auto softmax_lse = softmax_lse_.index({torch::indexing::Slice(), torch::indexing::Slice(), torch::indexing::Slice(torch::indexing::None, max_seqlen_q)}).contiguous();
+    auto dsoftmax_lse = dsoftmax_lse_.index({torch::indexing::Slice(), torch::indexing::Slice(), torch::indexing::Slice(torch::indexing::None, max_seqlen_q)}).contiguous();
 
     auto opts = q.options();
     auto softmax_d = torch::empty({batch_size, num_heads, max_seqlen_q}, opts.dtype(at::kFloat));

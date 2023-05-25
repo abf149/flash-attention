@@ -559,10 +559,10 @@ def test_flash_attn_unpadded_lse_singular(seqlen, d, dropout_p, causal, dtype):
     Wqkv = torch.nn.Linear(nheads * d, 3 * nheads * d, device=device, dtype=dtype)
 
     # Simple test-case: no padding
-    #query_padding_mask = generate_random_padding_mask(seqlen, batch_size, device, mode='full')
-    #key_padding_mask = generate_random_padding_mask(seqlen, batch_size, device, mode='full')
-    query_padding_mask = None
-    key_padding_mask = None
+    query_padding_mask = generate_random_padding_mask(seqlen, batch_size, device, mode='full')
+    key_padding_mask = generate_random_padding_mask(seqlen, batch_size, device, mode='full')
+    #query_padding_mask = None
+    #key_padding_mask = None
 
     (q_unpad, k_unpad, v_unpad, cu_seqlens_q, cu_seqlens_k, max_seqlen_q, max_seqlen_k, q, k, v,
      output_pad_fn, dq_pad_fn, dk_pad_fn) = generate_qkv(
@@ -638,6 +638,8 @@ def test_flash_attn_unpadded_lse_singular(seqlen, d, dropout_p, causal, dtype):
     print("Attn shape:",attn_ref.shape)
     print("LSE Attn shape;",torch.logsumexp(attn_ref,3).shape)
     print("LSE shape:",sm_lse.shape)  
+    print("dq_unpad_lse:",dq_unpad_lse)
+    print("dk_unpad_lse:",dq_unpad_lse)
     print("dq_lse:",dq_lse)
     print("dk_lse:",dk_lse)
     #print("dv_lse:",dv_lse)
@@ -825,9 +827,9 @@ def test_flash_attn_unpadded_lse(seqlen, d, dropout_p, causal, dtype):
     print("Attn shape:",attn_ref.shape)
     print("LSE Attn shape;",torch.logsumexp(attn_ref,3).shape)
     print("LSE shape:",sm_lse.shape)  
-    print("dq_lse:",dq_lse)
-    print("dk_lse:",dk_lse)
-    print("dv_lse:",dv_lse)
+    print("dq_lse combined:",dq_lse)
+    print("dk_lse combined:",dk_lse)
+    print("dv_lse combined:",dv_lse)
     
     # Both outputs
     #dq_ref_lse, dk_ref_lse, dv_ref_lse = torch.autograd.grad((output_ref,torch.logsumexp(attn_ref,3)), inputs=(q, k, v), grad_outputs=(g_output,g_lse),create_graph=True)

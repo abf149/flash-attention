@@ -268,6 +268,7 @@ inline __device__ void compute_dq_dk_dv_1xN_one_iter(const Params &params, Prng 
 
     Gmem_softmax_sum gmem_softmax_lse(params.softmax_lse_ptr, params, tidx);
     Gmem_softmax_sum gmem_softmax_d(params.dsoftmax_sum, params, tidx);
+    Gmem_softmax_sum gmem_dsoftmax_lse(params.dsoftmax_lse_ptr, params, tidx); // LSE backprop
 
     static_assert(Cta_tile_p::N % Cta_tile_p::M == 0);
     int begin = Is_causal ? loop_step_idx * Cta_tile_p::N / Cta_tile_p::M : 0;
@@ -299,6 +300,7 @@ inline __device__ void compute_dq_dk_dv_1xN_one_iter(const Params &params, Prng 
     // TODO: need to move gmem_s if we want the intermediate result for debugging
     gmem_softmax_lse.move(begin);
     gmem_softmax_d.move(begin);
+    gmem_dsoftmax_lse.move(begin); // LSE backprop
 
     if (!Is_first) {
         gmem_k.move(loop_step_idx);
@@ -318,6 +320,9 @@ inline __device__ void compute_dq_dk_dv_1xN_one_iter(const Params &params, Prng 
 
     float p_lse[Mma_tile_p::MMAS_M * 2];
     gmem_softmax_lse.load(reinterpret_cast<uint32_t(&)[Mma_tile_p::MMAS_M * 2]>(p_lse));
+
+    float dlse[Mma_tile_p::MMAS_M * 2];
+    gmem_dsoftmax_lse.load(reinterpret_cast<uint32_t(&)[Mma_tile_p::MMAS_M * 2]>(dlse));
 
     if (!Is_first) { __syncthreads(); }
     // Commit the data for Q, dO, and V to shared memory.
@@ -463,6 +468,8 @@ inline __device__ void compute_dq_dk_dv_1xN_one_iter(const Params &params, Prng 
         //     __syncthreads();
         // }
 
+        
+
         fmha::Fragment_accumulator acc_dp[Mma_tile_p::MMAS_M][Mma_tile_p::MMAS_N];
         #pragma unroll
         for (int mi = 0; mi < Mma_tile_p::MMAS_M; ++mi) {
@@ -470,7 +477,7 @@ inline __device__ void compute_dq_dk_dv_1xN_one_iter(const Params &params, Prng 
             for (int ni = 0; ni < Mma_tile_p::MMAS_N; ++ni) {
                 #pragma unroll
                 for (int ii = 0; ii < 8; ++ii) {
-                    acc_dp[mi][ni].elt(ii) = -dp_sum[mi * 2 + ((ii / 2) % 2)];
+                    acc_dp[mi][ni].elt(ii) = -dp_sum[mi * 2 + ((ii / 2) % 2)] + dlse[mi * 2 + ((ii / 2) % 2)];
                 }
             }
         }
@@ -638,7 +645,9 @@ inline __device__ void compute_dq_dk_dv_1xN_one_iter(const Params &params, Prng 
                 );
             }
             gmem_softmax_lse.move();
+            gmem_dsoftmax_lse.move();
             gmem_softmax_lse.load(reinterpret_cast<uint32_t(&)[Mma_tile_p::MMAS_M * 2]>(p_lse));
+            gmem_dsoftmax_lse.load(reinterpret_cast<uint32_t(&)[Mma_tile_p::MMAS_M * 2]>(dlse)); // LSE backprop
         }
 
         typename Smem_tile_st::Fragment frag_dpt[Mma_tile_dkv::MMAS_K][Mma_tile_dkv::MMAS_M];
