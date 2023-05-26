@@ -3,7 +3,7 @@
 **Test:**
 
 ```
-# Part 1: One Write Head is All You Need
+# Part 1: One Write Head (OWH) is All You Need
 # - Test 1: Correctness of Triton forward impl.
 # - Test 2: Race condition
 pytest tests/test_flash_attn_onewritehead.py
