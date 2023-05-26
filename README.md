@@ -26,6 +26,7 @@ PYTHONPATH=$PWD python3 benchmarks/benchmark_causal.py"  -b 12 -m 128 -e 12 -k 6
 
 **Jupyter Notebooks for automation:**
 * Part 1 (One Write Head): `Challenge problem.ipynb`
+    * Also implements benchmarking sweep for Parts 1, 2
 * Part 2 (LSE backprop): `Challenge problem pt2 LSE.ipynb`
 
 Additional implementation details:
