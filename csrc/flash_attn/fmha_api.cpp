@@ -398,7 +398,7 @@ void run_fmha_bwd(FMHA_dgrad_params &params, cudaStream_t stream, const bool con
 
 std::vector<at::Tensor>
 mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
-        const at::Tensor &dsoftmax_lse_,  // b x h x s softmax logsumexp
+        const at::Tensor &dsoftmax_lse_,  // b x h x s derivative of softmax logsumexp
         const at::Tensor &q,   // total_q x num_heads x head_size, total_q := \sum_{i=0}^{b} s_i
         const at::Tensor &k,   // total_k x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i
         const at::Tensor &v,   // total_k x num_heads x head_size, total_k := \sum_{i=0}^{b} s_i

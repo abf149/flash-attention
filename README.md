@@ -1,25 +1,105 @@
-# FlashAttention + One write head is all you need (OWH)
+# Andrew Feldman's technical assessment for Neural Magic
+
+## 1. FlashAttention + One write head is all you need (OWH) in Triton
+
+The OWH paper proposes that the transformer attention matrix need only be computed once for all heads (although each head still has a unique query.)
+
+Tests:
+* `pytest [--capture=tee-sys] tests/test_flash_attn_onewritehead.py` - I adapted the FlashAttention authors' triton regression tests to test my Triton-language FlashAttention + OWH implementation. This pytest script checks (1) output correctness for forward and backward passes against the inner attention, and (2) for race conditions.
+
+Benchmarks:
+* `benchmarks/benchmark_causal.py` - I adapted the FlashAttention authors' causal attention benchmark into a benchmarking CLI tool which I call from Jupyter Notebook
+
+`Challenge problem.ipynb` - Jupyter notebook facilitates automation of:
+   * Building and deploying my modifications to the FlashAttention Docker image for testing and benchmarking
+   * Performing sweep-test experiments which measure key metrics of inner-attention performance such as latency and memory consumption
+   * Generating useful plots
+   * Running the regression tests
 
 The OWH paper integration may be found in the following files:
-* flash_attn/flash_attn_triton_onewritehead.py - OWH integrated into the Triton implementation of FlashAttention.
+* `flash_attn/flash_attn_triton_onewritehead.py` - OWH integrated into the Triton implementation of FlashAttention.
    * Only causal mode is supported since the OWH paper specifically addresses the scenario of incremental causal attention
    * For ease of completing the task quickly, some simplifying constraints were imposed including dropout_fraction=0.0,
      no attention bias, no special masking is applied beyond causal masking
 
-Benchmarks:
-* benchmarks/benchmark_causal.py - I adapted the FlashAttention authors' causal attention benchmark into a benchmarking CLI tool which I call from Jupyter Notebook
+## 2. FlashAttention + LSE backpropagation in CUDA
+
+By penalizing the magnitude of the transformer attention row-wise LSE (as a training regularization) it is possible to lower the probability of numerical overflow. This requires backpropagation of the training loss penalty term through the LSE vector that is computed for each batch and head.
 
 Tests:
-* tests/test_flash_attn_onewritehead.py - I adapted the FlashAttention authors' triton regression tests to test my Triton-language FlashAttention + OWH implementation. This pytest script checks (1) output correctness for forward and backward passes against the inner attention, and (2) for race conditions.
+* `pytest [--capture=tee-sys] tests/test_flash_attn_lse.py` - I adapted the FlashAttention authors' regression tests to test my CUDA FlashAttention + LSE implementation. This pytest script checks output correctness for forward and backward passes against the inner attention
 
 Automation:
-* Challenge problem.ipynb - Jupyter notebook facilitates automation of:
+* `Challenge problem pt2 LSE.ipynb` - Jupyter notebook facilitates automation of:
     * Building and deploying my modifications to the FlashAttention Docker image for testing and benchmarking
-    * Performing sweep-test experiments which measure key metrics of inner-attention performance such as latency and memory consumption
-    * Generating useful plots
     * Running the regression tests
 
-Original paper:
+I re-derived equations 5 and 6 of Memory-Efficient Flash-attention Backward-pass (FlashAttention paper, Appendix B.2), which are the $dq$ and $dk$ backprop formulae. With LSE backprop, the formulae become:
+
+![backprop](assets/readme/dq_dk.png)
+
+The implementation of LSE backpropagation may be found in the following files:
+* `csrc/flash_attn/src/fmha_dgrad_kernel_1xN_loop.h` - LSE error($dlse$) is backpropagated into the computation of $dS$ by computing $(do_i^T v_j - D_i + dLSE_i)$ in the formulae above:
+
+```
+// Data movement
+Gmem_softmax_sum gmem_dsoftmax_lse(params.dsoftmax_lse_ptr, params, tidx);
+...
+float dlse[Mma_tile_p::MMAS_M * 2];
+gmem_dsoftmax_lse.load(reinterpret_cast<uint32_t(&)[Mma_tile_p::MMAS_M * 2]>(dlse));
+...
+// Modified $dS$ computation
+fmha::Fragment_accumulator acc_dp[Mma_tile_p::MMAS_M][Mma_tile_p::MMAS_N];
+#pragma unroll
+for (int mi = 0; mi < Mma_tile_p::MMAS_M; ++mi) {
+    #pragma unroll
+    for (int ni = 0; ni < Mma_tile_p::MMAS_N; ++ni) {
+        #pragma unroll
+        for (int ii = 0; ii < 8; ++ii) {
+            acc_dp[mi][ni].elt(ii) = -dp_sum[mi * 2 + ((ii / 2) % 2)] + dlse[mi * 2 + ((ii / 2) % 2)];
+        }
+    }
+}
+```
+
+* `fmha_api.cpp`
+   * As before, PyBind sets up a Python `bwd` API which points to C++ `mha_bwd()`
+   * But now the backprop parameters struct includes $dLSE$ (`dsoftmax_lse` below):
+
+   ```
+   std::vector<at::Tensor>
+   mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
+           const at::Tensor &dsoftmax_lse_,  // b x h x s derivative of softmax logsumexp
+           ...
+   ) {
+
+      ...
+
+      set_params_dgrad_lse(params,
+                           ...
+                           dsoftmax_lse.data_ptr(),
+                           ...
+                           );
+
+      ...
+
+   }
+
+   ```
+
+* `flash_attn_interface.py` - The Python backprop wrapper now has a $dLSE$ (`dsoftmax_lse`) argument():
+
+```
+class FlashAttnFunc(torch.autograd.Function):
+
+    ...
+
+    @staticmethod
+    def backward(ctx, dout, dsoftmax_lse, *args):
+        ...
+```
+
+Original FlashAttention README:
 ------
 # FlashAttention
 This repository provides the official implementation of FlashAttention from the
