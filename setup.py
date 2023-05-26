@@ -117,6 +117,8 @@ if bare_metal_version >= Version("11.8"):
     cc_flag.append("-gencode")
     cc_flag.append("arch=compute_90,code=sm_90")
 
+cc_flag.append("-t 0")
+
 subprocess.run(["git", "submodule", "update", "--init", "csrc/flash_attn/cutlass"])
 ext_modules.append(
     CUDAExtension(

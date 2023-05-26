@@ -474,11 +474,12 @@ mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
     const int num_heads = sizes[H_DIM];
     const int head_size = sizes[D_DIM];
     const int total_k = k.size(TOTAL_DIM);
-    std::cout<<"batch_size:"<<batch_size<<'\n';
-    std::cout<<"total_q:"<<total_q<<'\n';
-    std::cout<<"num_heads:"<<num_heads<<'\n';
-    std::cout<<"head_size:"<<head_size<<'\n';
-    std::cout<<"total_k:"<<total_k<<'\n';
+    //std::cout<<"batch_size:"<<batch_size<<'\n';
+    //std::cout<<"total_q:"<<total_q<<'\n';
+   //std::cout<<"num_heads:"<<num_heads<<'\n';
+    //std::cout<<"head_size:"<<head_size<<'\n';
+    //std::cout<<"total_k:"<<total_k<<'\n';
+    //std::cout<<"mha_bwd dsoftmax_lse_:"<<'b'<<'\n';
     TORCH_CHECK(batch_size > 0);
     TORCH_CHECK((head_size % 8 == 0) && (head_size <= 128));
     if (head_size > 64) {
