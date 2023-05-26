@@ -1,10 +1,10 @@
 # Andrew Feldman's technical assessment for Magic.dev
 
-Test:
+**Test:**
 
 ```
 # Part 1: One Write Head is All You Need
-# - Test 1: Correctness of Triton impl.
+# - Test 1: Correctness of Triton forward impl.
 # - Test 2: Race condition
 pytest tests/test_flash_attn_onewritehead.py
 
@@ -15,14 +15,16 @@ pytest tests/test_flash_attn_onewritehead.py
 pytest tests/test_flash_attn_lse.py
 ```
 
-Benchmark:
+Note that my Triton OWH backrop implementation still has an unaddressed correctness bug.
+
+**Benchmark:**
 
 ```
 # Benchmark Parts 1 (One Write Head) and Part 2 (LSE Backprop)
 PYTHONPATH=$PWD python3 benchmarks/benchmark_causal.py"  -b 12 -m 128 -e 12 -k 64
 ```
 
-Jupyter Notebooks for automation: 
+**Jupyter Notebooks for automation:**
 * Part 1 (One Write Head): `Challenge problem.ipynb`
 * Part 2 (LSE backprop): `Challenge problem pt2 LSE.ipynb`
 
