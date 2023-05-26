@@ -25,7 +25,7 @@ Note that my Triton OWH backrop implementation still has an unaddressed correctn
 # -m: Sequence length
 # -e: Number of attention heads
 # -k: Head dimension
-PYTHONPATH=$PWD python3 benchmarks/benchmark_causal.py"  -b 12 -m 128 -e 12 -k 64
+PYTHONPATH=$PWD python3 benchmarks/benchmark_causal.py  -b 12 -m 128 -e 12 -k 64
 ```
 
 **Jupyter Notebooks for automation:**
