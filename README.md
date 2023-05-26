@@ -21,6 +21,10 @@ Note that my Triton OWH backrop implementation still has an unaddressed correctn
 
 ```
 # Benchmark Parts 1 (One Write Head) and Part 2 (LSE Backprop)
+# -b: Batch size
+# -m: Sequence length
+# -e: Number of attention heads
+# -k: Head dimension
 PYTHONPATH=$PWD python3 benchmarks/benchmark_causal.py"  -b 12 -m 128 -e 12 -k 64
 ```
 
