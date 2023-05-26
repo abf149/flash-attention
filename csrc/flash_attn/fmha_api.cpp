@@ -388,13 +388,10 @@ mha_fwd(const at::Tensor &q,         // total_q x num_heads x head_size, total_q
 
 void run_fmha_bwd(FMHA_dgrad_params &params, cudaStream_t stream, const bool configure) {
   if (params.d <= 32) {
-      //std::cout<<"d value <= 32: "<<params.d<<'\n';
       run_fmha_bwd_hdim32(params, stream, configure);
   } else if (params.d <= 64) {
-      //std::cout<<"d value <= 64: "<<params.d<<'\n';
       run_fmha_bwd_hdim64(params, stream, configure);
   } else if (params.d <= 128) {
-      //std::cout<<"d value <= 128: "<<params.d<<'\n';
       run_fmha_bwd_hdim128(params, stream, configure);
   }
 }
@@ -474,12 +471,6 @@ mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
     const int num_heads = sizes[H_DIM];
     const int head_size = sizes[D_DIM];
     const int total_k = k.size(TOTAL_DIM);
-    //std::cout<<"batch_size:"<<batch_size<<'\n';
-    //std::cout<<"total_q:"<<total_q<<'\n';
-   //std::cout<<"num_heads:"<<num_heads<<'\n';
-    //std::cout<<"head_size:"<<head_size<<'\n';
-    //std::cout<<"total_k:"<<total_k<<'\n';
-    //std::cout<<"mha_bwd dsoftmax_lse_:"<<'b'<<'\n';
     TORCH_CHECK(batch_size > 0);
     TORCH_CHECK((head_size % 8 == 0) && (head_size <= 128));
     if (head_size > 64) {
@@ -506,11 +497,6 @@ mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
     }
     int max_seqlen_q = ((max_seqlen_q_ + 16 - 1) / 16) * 16;
     bool loop = max_seqlen_k > blocksize_c;
-
-    //std::cout<<"blocksize_c:"<<blocksize_c<<'\n';
-    //std::cout<<"max_seqlen_k:"<<max_seqlen_k<<'\n';
-    //std::cout<<"max_seqlen_q:"<<max_seqlen_q<<'\n';
-    //std::cout<<"loop:"<<loop<<'\n';
 
     // Otherwise the kernel will be launched from cuda:0 device
     // Cast to char to avoid compiler warning about narrowing

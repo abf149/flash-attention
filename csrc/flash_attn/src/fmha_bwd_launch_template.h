@@ -46,7 +46,6 @@ __global__ void fmha_bwd_q_dk_dv_loop_seqparallel_kernel(FMHA_dgrad_params param
 
 template<typename Kernel_traits>
 void run_fmha_bwd_loop(FMHA_dgrad_params &params, cudaStream_t stream, const bool configure) {
-    //std::cout<<"bwd_loop\n";
 
     constexpr int smem_size_softmax = Kernel_traits::Cta_tile_p::M * Kernel_traits::Cta_tile_p::WARPS_N * sizeof(float);
     constexpr int smem_size_q = Kernel_traits::Smem_tile_q::BYTES_PER_TILE;
@@ -103,11 +102,9 @@ void run_fmha_bwd_loop(FMHA_dgrad_params &params, cudaStream_t stream, const boo
         }
         if (configure) return;
         if (params.num_splits == 1) {
-            //std::cout<<"kernel\n";
             dim3 grid(params.b, params.h, params.num_splits);
             kernel<<<grid, Kernel_traits::THREADS, smem_size_dq_dk_dv, stream>>>(params);
         } else {
-            //std::cout<<"kernel parallel\n";
             dim3 grid_dot(params.b, params.h, (params.seqlen_q + 128 - 1) / 128);
             fmha_bwd_dot_do_o_kernel<Kernel_traits><<<grid_dot, Kernel_traits::THREADS, 0, stream>>>(params);
             int num_splits = params.seqlen_k / blocksize_c;  // seqlen_k is divisible by blocksize_c
