@@ -507,10 +507,10 @@ mha_bwd(const at::Tensor &dout,  // total_q x num_heads, x head_size
     int max_seqlen_q = ((max_seqlen_q_ + 16 - 1) / 16) * 16;
     bool loop = max_seqlen_k > blocksize_c;
 
-    std::cout<<"blocksize_c:"<<blocksize_c<<'\n';
-    std::cout<<"max_seqlen_k:"<<max_seqlen_k<<'\n';
-    std::cout<<"max_seqlen_q:"<<max_seqlen_q<<'\n';
-    std::cout<<"loop:"<<loop<<'\n';
+    //std::cout<<"blocksize_c:"<<blocksize_c<<'\n';
+    //std::cout<<"max_seqlen_k:"<<max_seqlen_k<<'\n';
+    //std::cout<<"max_seqlen_q:"<<max_seqlen_q<<'\n';
+    //std::cout<<"loop:"<<loop<<'\n';
 
     // Otherwise the kernel will be launched from cuda:0 device
     // Cast to char to avoid compiler warning about narrowing

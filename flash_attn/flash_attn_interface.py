@@ -138,9 +138,9 @@ class FlashAttnFunc(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, dout, dsoftmax_lse, *args):
-        print("dout:",dout)
-        print("dsoftmax_lse:",dsoftmax_lse)
-        print("args:",args)
+        #print("dout:",dout)
+        #print("dsoftmax_lse:",dsoftmax_lse)
+        #print("args:",args)
         q, k, v, out, softmax_lse, cu_seqlens_q, cu_seqlens_k, rng_state = ctx.saved_tensors
         dq, dk, dv = torch.empty_like(q), torch.empty_like(k), torch.empty_like(v)
         _flash_attn_backward_lse(
