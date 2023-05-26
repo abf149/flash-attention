@@ -39,7 +39,7 @@ I re-derived equations 5 and 6 of Memory-Efficient Flash-attention Backward-pass
 ![backprop](assets/readme/dq_dk.png)
 
 The implementation of LSE backpropagation may be found in the following files:
-* `csrc/flash_attn/src/fmha_dgrad_kernel_1xN_loop.h` - LSE error($dlse$) is backpropagated into the computation of $dS$ by computing $(do_i^T v_j - D_i + dLSE_i)$ in the formulae above:
+* `csrc/flash_attn/src/fmha_dgrad_kernel_1xN_loop.h` - LSE error($dLSE$ in the formula above, `dlse` in the code below) is backpropagated into the computation of $dS$ by computing $(do_i^T v_j - D_i + dLSE_i)$ from the formulae above:
 
 ```
 // Data movement
