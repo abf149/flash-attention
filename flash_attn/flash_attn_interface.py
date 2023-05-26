@@ -70,11 +70,11 @@ class FlashAttnQKVPackedFunc(torch.autograd.Function):
         return out if not return_softmax else (out, softmax_lse, S_dmask)
 
     @staticmethod
-    def backward(ctx, dout, *args):
+    def backward(ctx, dout, dsoftmax_lse, *args):
         qkv, out, softmax_lse, cu_seqlens, rng_state = ctx.saved_tensors
         dqkv = torch.empty_like(qkv)
-        _flash_attn_backward(
-            dout, qkv[:, 0], qkv[:, 1], qkv[:, 2], out, softmax_lse,
+        _flash_attn_backward_lse(
+            dout, dsoftmax_lse, qkv[:, 0], qkv[:, 1], qkv[:, 2], out, softmax_lse,
             dqkv[:, 0], dqkv[:, 1], dqkv[:, 2], cu_seqlens, cu_seqlens,
             ctx.max_seqlen, ctx.max_seqlen, ctx.dropout_p, ctx.softmax_scale, ctx.causal,
             rng_state=rng_state, num_splits=1 if ctx.deterministic else 0,

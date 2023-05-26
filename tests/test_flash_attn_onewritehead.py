@@ -443,7 +443,7 @@ def test_flash_attn_triton_output(seqlen_q, seqlen_k, d, causal, dtype, bias_sha
 @pytest.mark.parametrize('bias_shape', ([None])) #[None, '1h1k', '1hqk', 'b11k', 'b1qk']
 # @pytest.mark.parametrize('bias_shape', (['b1qk']))
 def test_flash_attn_triton_race_condition(seqlen_q, seqlen_k, d, causal, dtype, bias_shape):
-    pytest.skip()
+    #pytest.skip()
     
     if seqlen_q >= 2048 and torch.cuda.get_device_properties('cuda').total_memory <= 16 * 2**30:
         pytest.skip()  # Reference implementation OOM
