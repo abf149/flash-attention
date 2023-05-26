@@ -123,8 +123,8 @@ cu_seqlens = torch.arange(0, (batch_size + 1) * seqlen, step=seqlen, dtype=torch
 
 # FlashAttention (CUDA)
 benchmark_all(flash_attn_unpadded_qkvpacked_func, rearrange(qkv, 'b s ... -> (b s) ...'),
-              cu_seqlens, seqlen, dropout_p, causal=causal, repeats=repeats, desc='FlashAttention')
-benchmark_memory(flash_attn_unpadded_qkvpacked_func, rearrange(qkv, 'b s ... -> (b s) ...'), cu_seqlens, seqlen, dropout_p, causal=causal, desc='MaxMemory')
+              cu_seqlens, seqlen, dropout_p, causal=causal, repeats=repeats, desc='FlashAttention', return_attn_probs=True)
+benchmark_memory(flash_attn_unpadded_qkvpacked_func, rearrange(qkv, 'b s ... -> (b s) ...'), cu_seqlens, seqlen, dropout_p, causal=causal, desc='MaxMemory', return_attn_probs=True)
 # Standard PyTorch
 benchmark_all(attention_pytorch, qkv, dropout_p, causal=causal,
               repeats=repeats, desc='PyTorch Attention')

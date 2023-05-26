@@ -1,22 +1,38 @@
-# Andrew Feldman's technical assessment for Neural Magic
+# Andrew Feldman's technical assessment for Magic.dev
 
-## 1. FlashAttention + One write head is all you need (OWH) in Triton
+Test:
 
-The OWH paper proposes that the transformer attention matrix need only be computed once for all heads (although each head still has a unique query.)
+```
+# Part 1: One Write Head is All You Need
+# - Test 1: Correctness of Triton impl.
+# - Test 2: Race condition
+pytest tests/test_flash_attn_onewritehead.py
 
-Tests:
-* `pytest [--capture=tee-sys] tests/test_flash_attn_onewritehead.py` - I adapted the FlashAttention authors' triton regression tests to test my Triton-language FlashAttention + OWH implementation. This pytest script checks (1) output correctness for forward and backward passes against the inner attention, and (2) for race conditions.
+# Part 2: LSE backprop
+# - Test 1: Correctness of LSE backprop for dq, dk
+# - Test 2: Correctness of output & LSE backprop for dq, dk, dv
+# - Test 3: Correctness of output backprop for dq, dk, dv
+pytest tests/test_flash_attn_lse.py
+```
 
-Benchmarks:
-* `benchmarks/benchmark_causal.py` - I adapted the FlashAttention authors' causal attention benchmark into a benchmarking CLI tool which I call from Jupyter Notebook
+Benchmark:
 
-`Challenge problem.ipynb` - Jupyter notebook facilitates automation of:
-   * Building and deploying my modifications to the FlashAttention Docker image for testing and benchmarking
-   * Performing sweep-test experiments which measure key metrics of inner-attention performance such as latency and memory consumption
-   * Generating useful plots
-   * Running the regression tests
+```
+# Benchmark Parts 1 (One Write Head) and Part 2 (LSE Backprop)
+PYTHONPATH=$PWD python3 benchmarks/benchmark_causal.py"  -b 12 -m 128 -e 12 -k 64
+```
 
-The OWH paper integration may be found in the following files:
+Jupyter Notebooks for automation: 
+* Part 1 (One Write Head): `Challenge problem.ipynb`
+* Part 2 (LSE backprop): `Challenge problem pt2 LSE.ipynb`
+
+Additional implementation details:
+
+## 1. FlashAttention + [One write head is all you need (OWH)](https://arxiv.org/abs/1911.02150) in Triton
+
+The [OWH paper](https://arxiv.org/abs/1911.02150) proposes that the transformer attention matrix need only be computed once for all heads (although each head still has a unique query.) I modified the **Triton** FlashAttention implementation to support OWH.
+
+The implementation of OWH support may be found in the following files:
 * `flash_attn/flash_attn_triton_onewritehead.py` - OWH integrated into the Triton implementation of FlashAttention.
    * Only causal mode is supported since the OWH paper specifically addresses the scenario of incremental causal attention
    * For ease of completing the task quickly, some simplifying constraints were imposed including dropout_fraction=0.0,
@@ -25,14 +41,6 @@ The OWH paper integration may be found in the following files:
 ## 2. FlashAttention + LSE backpropagation in CUDA
 
 By penalizing the magnitude of the transformer attention row-wise LSE (as a training regularization) it is possible to lower the probability of numerical overflow. This requires backpropagation of the training loss penalty term through the LSE vector that is computed for each batch and head.
-
-Tests:
-* `pytest [--capture=tee-sys] tests/test_flash_attn_lse.py` - I adapted the FlashAttention authors' regression tests to test my CUDA FlashAttention + LSE implementation. This pytest script checks output correctness for forward and backward passes against the inner attention
-
-Automation:
-* `Challenge problem pt2 LSE.ipynb` - Jupyter notebook facilitates automation of:
-    * Building and deploying my modifications to the FlashAttention Docker image for testing and benchmarking
-    * Running the regression tests
 
 I re-derived equations 5 and 6 of Memory-Efficient Flash-attention Backward-pass (FlashAttention paper, Appendix B.2), which are the $dq$ and $dk$ backprop formulae. With LSE backprop, the formulae become:
 

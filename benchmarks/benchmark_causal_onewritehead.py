@@ -8,7 +8,6 @@ from einops import rearrange, repeat
 
 from flash_attn.utils.benchmark import benchmark_forward, benchmark_all, pytorch_profiler
 from flash_attn.flash_attn_interface import flash_attn_unpadded_qkvpacked_func
-# from flash_attn.triton.fused_attention import attention as attention
 from flash_attn.flash_attn_triton import flash_attn_qkvpacked_func
 from flash_attn.flash_attn_triton_onewritehead import flash_attn_qkvpacked_func_onewritehead
 from flash_attn.flash_attn_triton_og import attention as attention_og
@@ -91,7 +90,7 @@ cu_seqlens = torch.arange(0, (batch_size + 1) * seqlen, step=seqlen, dtype=torch
                           device=qkv.device)
 
 benchmark_all(flash_attn_unpadded_qkvpacked_func, rearrange(qkv, 'b s ... -> (b s) ...'),
-              cu_seqlens, seqlen, dropout_p, causal=causal, repeats=repeats, desc='FlashAttention')
+              cu_seqlens, seqlen, dropout_p, causal=causal, repeats=repeats, desc='FlashAttention', return_attn_probs=True)
 benchmark_all(attention_pytorch, qkv, dropout_p, causal=causal,
               repeats=repeats, desc='PyTorch Attention')
 
