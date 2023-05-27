@@ -15,7 +15,7 @@ pytest tests/test_flash_attn_onewritehead.py
 pytest tests/test_flash_attn_lse.py
 ```
 
-Note that my Triton OWH backrop implementation still has an unaddressed correctness bug.
+Note that my Triton OWH backprop implementation still has an unaddressed correctness bug.
 
 **Benchmark:**
 
