@@ -398,7 +398,15 @@ def test_flash_attn_unpadded_lse_singular(seqlen, d, dropout_p, causal, dtype):
         g = torch.randn_like(output)
         pass
         
+
+
     # LSE backprop test
+    qp=q.contiguous()
+    print("Q shape: ",qp.shape)
+    print("Q unpad shape: ",q_unpad.shape)
+    print("Q stride: ",qp.stride()) 
+    print("cu: ",cu_seqlens_q)
+    print("sm_lse:",sm_lse)
     g_output = torch.randn_like(output)
     g_output_null = torch.zeros_like(output)
     g_lse = torch.randn_like(sm_lse)*1.0e4

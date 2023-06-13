@@ -1,1 +1,1 @@
-echo "pytest tests/test_flash_attn_lse.py"  | docker-compose run flashattention 
+echo "pytest --capture=tee-sys tests/test_flash_attn_lse.py"  | docker-compose run flashattention 

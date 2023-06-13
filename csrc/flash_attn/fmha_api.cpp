@@ -69,6 +69,9 @@ void set_params_fprop(FMHA_fprop_params &params,
     params.q_ptr = q.data_ptr();
     params.k_ptr = k.data_ptr();
     params.v_ptr = v.data_ptr();
+    std::cout<<"Stride 0:"<<q.stride(0)<<"\n";
+    std::cout<<"Stride 1:"<<q.stride(1)<<"\n";
+    std::cout<<"Stride 2:"<<q.stride(2)<<"\n";          
     params.q_row_stride_in_elts = q.stride(0);
     params.k_row_stride_in_elts = k.stride(0);
     params.v_row_stride_in_elts = v.stride(0);
